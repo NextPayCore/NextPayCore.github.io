@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Scanner - Kiểm tra thiết bị</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        .scanner-container {
+            position: relative;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        
+        #scanner {
+            width: 100%;
+            height: 300px;
+            border: 2px solid #007bff;
+            border-radius: 10px;
+            background: #f8f9fa;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        #scanner video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover;
+            border-radius: 8px;
+        }
+        
+        .scanner-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border: 2px solid #28a745;
+            border-radius: 10px;
+            pointer-events: none;
+        }
+        
+        .result-card {
+            margin-top: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .device-info {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .lot-info {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        
+        .scanning-animation {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .btn-scan {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            border: none;
+            border-radius: 25px;
+            padding: 12px 30px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .btn-scan:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,123,255,0.3);
+        }
+        
+        /* Modal styles */
+        .modal-content {
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+            border-radius: 15px 15px 0 0;
+        }
+        
+        .modal-body {
+            /* padding: 1.5rem; */
+        }
+        
+        .modal-footer {
+            /* border-top: none;
+            padding: 1rem 1.5rem; */
+        }
+        
+        #resultModal .device-info,
+        #resultModal .lot-info {
+            margin-bottom: 0;
+        }
+        
+        /* Error Modal styles */
+        #errorModal .modal-header {
+            background: linear-gradient(135deg, #dc3545, #c82333) !important;
+        }
+        
+        #errorModal .modal-content {
+            border: 2px solid #dc3545;
+        }
+        
+        #errorModal .btn-danger {
+            background: linear-gradient(135deg, #dc3545, #c82333);
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1.5rem;
+            font-weight: 600;
+        }
+        
+        #errorModal .btn-danger:hover {
+            background: linear-gradient(135deg, #c82333, #bd2130);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(220,53,69,0.3);
+        }
+        
+        /* Text wrapping for error messages */
+        #errorMessage {
+            word-wrap: break-word;
+            word-break: break-all;
+            white-space: normal;
+            max-width: 100%;
+            overflow-wrap: break-word;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <!-- Header -->
+                <!-- <div class="text-center mb-4">
+                    <h1 class="display-4 text-primary">
+                        <i class="fas fa-qrcode"></i> QR Scanner
+                    </h1>
+                    <p class="lead text-muted">Quét mã QR để kiểm tra thiết bị</p>
+                </div> -->
+
+                <!-- Scanner Section -->
+                <div class="card shadow-lg">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-camera"></i> Camera Scanner
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="scanner-container">
+                            <div id="scanner"></div>
+                            <div class="scanner-overlay" id="overlay" style="display: none;"></div>
+                        </div>
+                        
+                        <div class="text-center mt-3">
+                            <button id="stopScan" class="btn btn-danger btn-scan" style="display: none;">
+                                <i class="fas fa-stop"></i> Dừng quét
+                            </button>
+                        </div>
+                        
+                        <div class="alert alert-info mt-3" id="scanStatus" style="display: none;">
+                            <i class="fas fa-info-circle"></i> Nhấn "Bắt đầu quét" để bắt đầu quét mã QR
+                        </div>
+                        
+                    </div>
+                </div>
+
+                <!-- Result Modal -->
+                <div class="modal fade" id="resultModal" tabindex="-1" aria-labelledby="resultModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title" id="resultModalLabel">
+                                    <i class="fas fa-check-circle"></i> Kết quả quét mã QR
+                                </h5>
+                            </div>
+                            <div class="modal-body">
+                                <div class="row">
+                                    <div class="col-12">
+                                        <div class="device-info p-3 rounded mb-3">
+                                            <h6><i class="fas fa-mobile-alt"></i> Thông tin thiết bị</h6>
+                                            <p class="mb-1"><strong>Mã thiết bị:</strong> <span id="deviceCode"></span></p>
+                                            <!-- <p class="mb-0"><strong>Trạng thái:</strong> <span class="badge bg-success">Đã tìm thấy</span></p> -->
+                                            <p class="mb-1"><strong>Lô:</strong> <span id="lotName"></span></p>
+                                        </div>
+                                    </div>
+                                    <!-- <div class="col-12">
+                                        <div class="lot-info p-3 rounded mb-3">
+                                            <h6><i class="fas fa-boxes"></i> Thông tin lô</h6>
+                                            <p class="mb-1"><strong>Lô:</strong> <span id="lotName"></span></p>
+                                            <p class="mb-0"><strong>Vị trí:</strong> <span id="lotPosition"></span></p>
+                                        </div>
+                                    </div> -->
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-primary" id="modalOK">
+                                    <i class="fas fa-check"></i> OK
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Modal -->
+                <div class="modal fade" id="errorModal" tabindex="-1" aria-labelledby="errorModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header bg-danger text-white">
+                                <h5 class="modal-title" id="errorModalLabel">
+                                    <i class="fas fa-exclamation-triangle"></i> Lỗi
+                                </h5>
+                            </div>
+                            <div class="modal-body">
+                                <div class="text-center">
+                                    <i class="fas fa-exclamation-circle text-danger" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                                    <p id="errorMessage" class="mb-0"></p>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-danger" id="errorModalOK">
+                                    <i class="fas fa-check"></i> OK
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- QuaggaJS for QR/Barcode scanning -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <!-- QR Scanner fallback -->
+    <script src="https://unpkg.com/qr-scanner@1.4.2/qr-scanner.umd.min.js"></script>
+    <!-- Custom script -->
+    <script src="script.js"></script>
+</body>
+</html>
