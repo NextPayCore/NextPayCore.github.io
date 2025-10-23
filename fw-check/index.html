@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firmware Check Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .table-container {
+            margin-top: 20px;
+        }
+        .status-badge {
+            font-size: 0.8em;
+        }
+        .serial-input {
+            position: absolute;
+            left: -9999px;
+            opacity: 0;
+        }
+        .loading {
+            display: none;
+        }
+        .alert-info {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <h1 class="text-center my-4">
+                    <i class="fas fa-microchip"></i> Firmware Check Tool
+                </h1>
+                
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Hướng dẫn sử dụng:</strong> Quét mã vạch thiết bị để kiểm tra firmware. Serial thiết bị bắt đầu bằng "TB" và có 13 ký tự. Hệ thống sẽ tự động kiểm tra sau 0.5 giây hoặc nhấn Enter.
+                </div>
+
+                <!-- Hidden input for barcode scanner -->
+                <input type="text" class="serial-input" id="serialInput" placeholder="Scan barcode here...">
+
+                <div class="table-container">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h3>Danh sách thiết bị</h3>
+                        <div class="loading">
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            Đang kiểm tra...
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover" id="deviceTable">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Serial</th>
+                                    <th>Firmware</th>
+                                    <th>Is Latest</th>
+                                    <th>Last Update</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="deviceTableBody">
+                                <!-- Data will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div id="emptyState" class="text-center py-5" style="display: none;">
+                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">Chưa có thiết bị nào được quét. Hãy quét mã vạch để bắt đầu.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        $(document).ready(function() {
+            // Global variables
+            let deviceData = [];
+            let inputTimeout = null;
+            const STORAGE_KEY = 'firmware_check_devices';
+            const LATEST_FIRMWARE = '1.2.0.3';
+            const API_BASE_URL = 'https://tingbox-ota.nextpay.vn/deviceapi/version';
+
+            // Initialize app
+            init();
+
+            function init() {
+                loadDataFromStorage();
+                renderTable();
+                setupBarcodeListener();
+            }
+
+            // Setup barcode scanner listener with debounce
+            function setupBarcodeListener() {
+                let inputBuffer = '';
+                let lastInputTime = 0;
+                const DEBOUNCE_TIME = 500; // 0.5 seconds
+
+                $(document).on('keypress', function(e) {
+                    const currentTime = Date.now();
+                    
+                    // Handle Enter key - process immediately if we have 13 characters
+                    if (e.which === 13 || e.keyCode === 13) {
+                        e.preventDefault();
+                        if (inputBuffer.length === 13) {
+                            processScannedSerial(inputBuffer);
+                        } else {
+                            showAlert(`Serial không đủ 13 ký tự. Hiện tại: ${inputBuffer.length} ký tự`, 'warning');
+                        }
+                        inputBuffer = '';
+                        return;
+                    }
+                    
+                    // Reset buffer if too much time has passed
+                    if (currentTime - lastInputTime > DEBOUNCE_TIME) {
+                        inputBuffer = '';
+                    }
+                    
+                    inputBuffer += e.key;
+                    lastInputTime = currentTime;
+                    
+                    // Clear previous timeout
+                    if (inputTimeout) {
+                        clearTimeout(inputTimeout);
+                    }
+                    
+                    // Set new timeout for debounce
+                    inputTimeout = setTimeout(function() {
+                        // Only process if we have exactly 13 characters
+                        if (inputBuffer.length === 13) {
+                            processScannedSerial(inputBuffer);
+                        }
+                        inputBuffer = '';
+                    }, DEBOUNCE_TIME);
+                });
+            }
+
+            // Process scanned serial number
+            function processScannedSerial(serial) {
+                // Clean the serial (remove any non-printable characters)
+                serial = serial.trim().replace(/[^\x20-\x7E]/g, '');
+                
+                // Log serial to console
+                console.log('Serial thiết bị được quét:', serial);
+                
+                // Validate serial format (TB + 11 digits = 13 characters total)
+                if (!isValidSerial(serial)) {
+                    console.log('Serial không hợp lệ:', serial);
+                    showAlert('Serial không hợp lệ. Serial phải bắt đầu bằng "TB" và có 13 ký tự.', 'warning');
+                    return;
+                }
+                
+                // Check if device already exists
+                if (deviceExists(serial)) {
+                    console.log('Thiết bị đã tồn tại:', serial);
+                    showAlert(`Thiết bị ${serial} đã tồn tại trong danh sách.`, 'info');
+                    return;
+                }
+                
+                console.log('Bắt đầu kiểm tra firmware cho serial:', serial);
+                // Show loading and call API
+                showLoading(true);
+                checkFirmware(serial);
+            }
+
+            // Validate serial number format
+            function isValidSerial(serial) {
+                return /^TB\d{11}$/.test(serial);
+            }
+
+            // Check if device already exists
+            function deviceExists(serial) {
+                return deviceData.some(device => device.serial === serial);
+            }
+
+            // Call API to check firmware
+            function checkFirmware(serial) {
+                console.log('Calling API for serial:', serial);
+                $.ajax({
+                    url: `${API_BASE_URL}?s=${serial}`,
+                    method: 'GET',
+                    timeout: 10000,
+                    success: function(firmware) {
+                        console.log('API response for', serial, ':', firmware);
+                        const device = {
+                            serial: serial,
+                            firmware: firmware,
+                            isLatest: firmware === LATEST_FIRMWARE,
+                            lastUpdate: new Date().toLocaleString('vi-VN')
+                        };
+                        
+                        console.log('Device object created:', device);
+                        deviceData.push(device);
+                        saveDataToStorage();
+                        renderTable();
+                        showAlert(`Đã thêm thiết bị ${serial} với firmware ${firmware}`, 'success');
+                    },
+                    error: function(xhr, status, error) {
+                        console.log('API error for', serial, ':', error);
+                        showAlert(`Lỗi khi kiểm tra firmware cho ${serial}: ${error}`, 'danger');
+                    },
+                    complete: function() {
+                        showLoading(false);
+                    }
+                });
+            }
+
+            // Recheck firmware for a device
+            function recheckFirmware(serial) {
+                const deviceIndex = deviceData.findIndex(device => device.serial === serial);
+                if (deviceIndex === -1) return;
+                
+                showLoading(true);
+                $.ajax({
+                    url: `${API_BASE_URL}?s=${serial}`,
+                    method: 'GET',
+                    timeout: 10000,
+                    success: function(firmware) {
+                        deviceData[deviceIndex].firmware = firmware;
+                        deviceData[deviceIndex].isLatest = firmware === LATEST_FIRMWARE;
+                        deviceData[deviceIndex].lastUpdate = new Date().toLocaleString('vi-VN');
+                        
+                        saveDataToStorage();
+                        renderTable();
+                        showAlert(`Đã cập nhật firmware cho ${serial}: ${firmware}`, 'success');
+                    },
+                    error: function(xhr, status, error) {
+                        showAlert(`Lỗi khi kiểm tra lại firmware cho ${serial}: ${error}`, 'danger');
+                    },
+                    complete: function() {
+                        showLoading(false);
+                    }
+                });
+            }
+
+            // Delete device
+            function deleteDevice(serial) {
+                if (confirm(`Bạn có chắc chắn muốn xóa thiết bị ${serial}?`)) {
+                    deviceData = deviceData.filter(device => device.serial !== serial);
+                    saveDataToStorage();
+                    renderTable();
+                    showAlert(`Đã xóa thiết bị ${serial}`, 'info');
+                }
+            }
+
+            // Render table
+            function renderTable() {
+                const tbody = $('#deviceTableBody');
+                tbody.empty();
+                
+                if (deviceData.length === 0) {
+                    $('#emptyState').show();
+                    return;
+                }
+                
+                $('#emptyState').hide();
+                
+                deviceData.forEach(device => {
+                    const row = $(`
+                        <tr>
+                            <td><code>${device.serial}</code></td>
+                            <td><span class="badge bg-secondary">${device.firmware}</span></td>
+                            <td>${getLatestStatusBadge(device.isLatest)}</td>
+                            <td><small class="text-muted">${device.lastUpdate}</small></td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary me-1" onclick="recheckFirmware('${device.serial}')" title="Kiểm tra lại">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="deleteDevice('${device.serial}')" title="Xóa">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `);
+                    tbody.append(row);
+                });
+            }
+
+            // Get latest status badge
+            function getLatestStatusBadge(isLatest) {
+                if (isLatest) {
+                    return '<span class="badge bg-success status-badge"><i class="fas fa-check"></i> Latest</span>';
+                } else {
+                    return '<span class="badge bg-warning status-badge"><i class="fas fa-exclamation-triangle"></i> Outdated</span>';
+                }
+            }
+
+            // Show loading state
+            function showLoading(show) {
+                $('.loading').toggle(show);
+            }
+
+            // Show alert message
+            function showAlert(message, type) {
+                const alertHtml = `
+                    <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                        ${message}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                `;
+                
+                // Remove existing alerts
+                $('.alert').remove();
+                
+                // Add new alert
+                $('.container-fluid').prepend(alertHtml);
+                
+                // Auto dismiss after 3 seconds
+                setTimeout(() => {
+                    $('.alert').alert('close');
+                }, 3000);
+            }
+
+            // Save data to localStorage
+            function saveDataToStorage() {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(deviceData));
+            }
+
+            // Load data from localStorage
+            function loadDataFromStorage() {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    try {
+                        deviceData = JSON.parse(stored);
+                    } catch (e) {
+                        console.error('Error parsing stored data:', e);
+                        deviceData = [];
+                    }
+                }
+            }
+
+            // Make functions globally available
+            window.recheckFirmware = recheckFirmware;
+            window.deleteDevice = deleteDevice;
+        });
+    </script>
+</body>
+</html>
