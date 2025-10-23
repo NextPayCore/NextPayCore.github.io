@@ -24,6 +24,51 @@
         .alert-info {
             margin-bottom: 20px;
         }
+        .highlight-duplicate {
+            background-color: #fff3cd !important;
+            border: 2px solid #ffc107 !important;
+            animation: pulse-highlight 0.5s ease-in-out;
+        }
+        @keyframes pulse-highlight {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+        .toast-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 9999;
+            min-width: 300px;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            border-radius: 8px;
+            animation: toastSlideIn 0.3s ease-out;
+        }
+        @keyframes toastSlideIn {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+        .toast-notification.fade-out {
+            animation: toastFadeOut 0.3s ease-in forwards;
+        }
+        @keyframes toastFadeOut {
+            from {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            to {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.8);
+            }
+        }
     </style>
 </head>
 <body>
@@ -36,7 +81,7 @@
                 
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle"></i>
-                    <strong>Hướng dẫn sử dụng:</strong> Quét mã vạch thiết bị để kiểm tra firmware. Serial thiết bị bắt đầu bằng "TB" và có 13 ký tự. Hệ thống sẽ tự động kiểm tra sau 0.5 giây hoặc nhấn Enter.
+                    <strong>Hướng dẫn sử dụng:</strong> Nhấn chuột vào page để focus vào document, quét mã vạch thiết bị để kiểm tra firmware. Serial thiết bị bắt đầu bằng "TB" và có 13 ký tự. Hệ thống sẽ tự động kiểm tra.
                 </div>
 
                 <!-- Hidden input for barcode scanner -->
@@ -45,9 +90,17 @@
                 <div class="table-container">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h3>Danh sách thiết bị</h3>
-                        <div class="loading">
-                            <span class="spinner-border spinner-border-sm" role="status"></span>
-                            Đang kiểm tra...
+                        <div class="d-flex align-items-center gap-3">
+                            <button class="btn btn-success" id="exportJsonBtn" onclick="exportToJson()">
+                                <i class="fas fa-download"></i> Export JSON
+                            </button>
+                            <button class="btn btn-warning" id="recheckAllOutdatedBtn" onclick="recheckAllOutdated()">
+                                <i class="fas fa-sync-alt"></i> Recheck all outdated
+                            </button>
+                            <div class="loading">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                Đang kiểm tra...
+                            </div>
                         </div>
                     </div>
                     
@@ -55,6 +108,7 @@
                         <table class="table table-striped table-hover" id="deviceTable">
                             <thead class="table-dark">
                                 <tr>
+                                    <th>STT</th>
                                     <th>Serial</th>
                                     <th>Firmware</th>
                                     <th>Is Latest</th>
@@ -164,6 +218,7 @@
                 if (deviceExists(serial)) {
                     console.log('Thiết bị đã tồn tại:', serial);
                     showAlert(`Thiết bị ${serial} đã tồn tại trong danh sách.`, 'info');
+                    highlightDuplicateRow(serial);
                     return;
                 }
                 
@@ -183,6 +238,34 @@
                 return deviceData.some(device => device.serial === serial);
             }
 
+            // Highlight duplicate row
+            function highlightDuplicateRow(serial) {
+                // Find the row containing the duplicate serial
+                const rows = $('#deviceTableBody tr');
+                rows.each(function() {
+                    const row = $(this);
+                    const serialCell = row.find('code').text();
+                    if (serialCell === serial) {
+                        // Add highlight class
+                        row.addClass('highlight-duplicate');
+                        
+                        // Scroll to the row
+                        row[0].scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'center' 
+                        });
+                        
+                        // Remove highlight after 2 seconds
+                        setTimeout(() => {
+                            row.removeClass('highlight-duplicate');
+                        }, 2000);
+                        
+                        console.log('Highlighted duplicate row for serial:', serial);
+                        return false; // Break the loop
+                    }
+                });
+            }
+
             // Call API to check firmware
             function checkFirmware(serial) {
                 console.log('Calling API for serial:', serial);
@@ -200,7 +283,7 @@
                         };
                         
                         console.log('Device object created:', device);
-                        deviceData.push(device);
+                        deviceData.unshift(device);
                         saveDataToStorage();
                         renderTable();
                         showAlert(`Đã thêm thiết bị ${serial} với firmware ${firmware}`, 'success');
@@ -265,9 +348,11 @@
                 
                 $('#emptyState').hide();
                 
-                deviceData.forEach(device => {
+                deviceData.forEach((device, index) => {
+                    const stt = deviceData.length - index; // STT giảm dần (mới nhất = STT cao nhất)
                     const row = $(`
                         <tr>
+                            <td><span class="badge bg-primary">${stt}</span></td>
                             <td><code>${device.serial}</code></td>
                             <td><span class="badge bg-secondary">${device.firmware}</span></td>
                             <td>${getLatestStatusBadge(device.isLatest)}</td>
@@ -302,23 +387,43 @@
 
             // Show alert message
             function showAlert(message, type) {
-                const alertHtml = `
-                    <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                        ${message}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                // Remove existing toast notifications
+                $('.toast-notification').remove();
+                
+                // Create toast notification
+                const toastHtml = `
+                    <div class="toast-notification alert alert-${type} alert-dismissible fade show" role="alert">
+                        <div class="d-flex align-items-center">
+                            <div class="flex-grow-1">
+                                ${message}
+                            </div>
+                            <button type="button" class="btn-close" onclick="closeToast(this)"></button>
+                        </div>
                     </div>
                 `;
                 
-                // Remove existing alerts
-                $('.alert').remove();
-                
-                // Add new alert
-                $('.container-fluid').prepend(alertHtml);
+                // Add toast to body
+                $('body').append(toastHtml);
                 
                 // Auto dismiss after 3 seconds
                 setTimeout(() => {
-                    $('.alert').alert('close');
+                    const toast = $('.toast-notification');
+                    if (toast.length > 0) {
+                        toast.addClass('fade-out');
+                        setTimeout(() => {
+                            toast.remove();
+                        }, 300);
+                    }
                 }, 3000);
+            }
+
+            // Close toast notification
+            function closeToast(button) {
+                const toast = $(button).closest('.toast-notification');
+                toast.addClass('fade-out');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
             }
 
             // Save data to localStorage
@@ -339,9 +444,118 @@
                 }
             }
 
+            // Export data to JSON file
+            function exportToJson() {
+                if (deviceData.length === 0) {
+                    showAlert('Không có dữ liệu để export!', 'warning');
+                    return;
+                }
+                
+                // Create export data with metadata
+                const exportData = {
+                    exportInfo: {
+                        timestamp: new Date().toISOString(),
+                        totalDevices: deviceData.length,
+                        latestFirmware: LATEST_FIRMWARE,
+                        exportedBy: 'Firmware Check Tool'
+                    },
+                    devices: deviceData
+                };
+                
+                // Convert to JSON string with pretty formatting
+                const jsonString = JSON.stringify(exportData, null, 2);
+                
+                // Create blob and download
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // Create download link
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `firmware-check-${new Date().toISOString().split('T')[0]}.json`;
+                
+                // Trigger download
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Clean up URL object
+                URL.revokeObjectURL(url);
+                
+                console.log('Exported data:', exportData);
+                showAlert(`Đã export ${deviceData.length} thiết bị ra file JSON!`, 'success');
+            }
+
+            // Recheck all outdated devices
+            function recheckAllOutdated() {
+                const outdatedDevices = deviceData.filter(device => !device.isLatest);
+                
+                if (outdatedDevices.length === 0) {
+                    showAlert('Không có thiết bị nào cần kiểm tra lại!', 'info');
+                    return;
+                }
+                
+                if (!confirm(`Bạn có chắc chắn muốn kiểm tra lại ${outdatedDevices.length} thiết bị outdated?`)) {
+                    return;
+                }
+                
+                console.log('Bắt đầu recheck tất cả thiết bị outdated:', outdatedDevices.length);
+                showLoading(true);
+                
+                let completedCount = 0;
+                let successCount = 0;
+                let errorCount = 0;
+                
+                outdatedDevices.forEach((device, index) => {
+                    setTimeout(() => {
+                        console.log(`Rechecking device ${index + 1}/${outdatedDevices.length}:`, device.serial);
+                        
+                        $.ajax({
+                            url: `${API_BASE_URL}?s=${device.serial}`,
+                            method: 'GET',
+                            timeout: 10000,
+                            success: function(firmware) {
+                                console.log(`API response for ${device.serial}:`, firmware);
+                                
+                                // Find device in array and update
+                                const deviceIndex = deviceData.findIndex(d => d.serial === device.serial);
+                                if (deviceIndex !== -1) {
+                                    deviceData[deviceIndex].firmware = firmware;
+                                    deviceData[deviceIndex].isLatest = firmware === LATEST_FIRMWARE;
+                                    deviceData[deviceIndex].lastUpdate = new Date().toLocaleString('vi-VN');
+                                    successCount++;
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                console.log(`API error for ${device.serial}:`, error);
+                                errorCount++;
+                            },
+                            complete: function() {
+                                completedCount++;
+                                
+                                // Check if all requests completed
+                                if (completedCount === outdatedDevices.length) {
+                                    saveDataToStorage();
+                                    renderTable();
+                                    showLoading(false);
+                                    
+                                    const message = `Hoàn thành kiểm tra ${outdatedDevices.length} thiết bị. Thành công: ${successCount}, Lỗi: ${errorCount}`;
+                                    showAlert(message, successCount > 0 ? 'success' : 'warning');
+                                    
+                                    console.log('Recheck completed:', { total: outdatedDevices.length, success: successCount, error: errorCount });
+                                }
+                            }
+                        });
+                    }, index * 500); // Delay 500ms between requests to avoid overwhelming the API
+                });
+            }
+
             // Make functions globally available
             window.recheckFirmware = recheckFirmware;
             window.deleteDevice = deleteDevice;
+            window.recheckAllOutdated = recheckAllOutdated;
+            window.exportToJson = exportToJson;
+            window.closeToast = closeToast;
         });
     </script>
 </body>
