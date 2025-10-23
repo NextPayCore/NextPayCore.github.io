@@ -45,6 +45,8 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
             border-radius: 8px;
             animation: toastSlideIn 0.3s ease-out;
+            font-size: 22px;
+            font-weight: 600;
         }
         @keyframes toastSlideIn {
             from {
@@ -91,6 +93,9 @@
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h3>Danh sách thiết bị</h3>
                         <div class="d-flex align-items-center gap-3">
+                            <button class="btn btn-danger" id="clearAllBtn" onclick="clearAllData()">
+                                <i class="fas fa-trash-alt"></i> Clear all
+                            </button>
                             <button class="btn btn-success" id="exportJsonBtn" onclick="exportToJson()">
                                 <i class="fas fa-download"></i> Export JSON
                             </button>
@@ -216,13 +221,14 @@
                 
                 // Check if device already exists
                 if (deviceExists(serial)) {
-                    console.log('Thiết bị đã tồn tại:', serial);
-                    showAlert(`Thiết bị ${serial} đã tồn tại trong danh sách.`, 'info');
+                    console.log('Thiết bị đã tồn tại, sẽ kiểm tra lại:', serial);
+                    showAlert(`Thiết bị ${serial} đã tồn tại, đang kiểm tra lại firmware...`, 'info');
                     highlightDuplicateRow(serial);
-                    return;
+                    // Continue to check firmware instead of returning
+                } else {
+                    console.log('Bắt đầu kiểm tra firmware cho serial:', serial);
                 }
                 
-                console.log('Bắt đầu kiểm tra firmware cho serial:', serial);
                 // Show loading and call API
                 showLoading(true);
                 checkFirmware(serial);
@@ -275,18 +281,36 @@
                     timeout: 10000,
                     success: function(firmware) {
                         console.log('API response for', serial, ':', firmware);
-                        const device = {
-                            serial: serial,
-                            firmware: firmware,
-                            isLatest: firmware === LATEST_FIRMWARE,
-                            lastUpdate: new Date().toLocaleString('vi-VN')
-                        };
                         
-                        console.log('Device object created:', device);
-                        deviceData.unshift(device);
-                        saveDataToStorage();
-                        renderTable();
-                        showAlert(`Đã thêm thiết bị ${serial} với firmware ${firmware}`, 'success');
+                        // Check if device already exists
+                        const existingDeviceIndex = deviceData.findIndex(device => device.serial === serial);
+                        
+                        if (existingDeviceIndex !== -1) {
+                            // Update existing device
+                            console.log('Updating existing device:', serial);
+                            deviceData[existingDeviceIndex].firmware = firmware;
+                            deviceData[existingDeviceIndex].isLatest = firmware === LATEST_FIRMWARE;
+                            deviceData[existingDeviceIndex].lastUpdate = new Date().toLocaleString('vi-VN');
+                            
+                            saveDataToStorage();
+                            renderTable();
+                            showAlert(`Đã cập nhật thiết bị ${serial} với firmware ${firmware}`, 'success');
+                        } else {
+                            // Add new device
+                            console.log('Adding new device:', serial);
+                            const device = {
+                                serial: serial,
+                                firmware: firmware,
+                                isLatest: firmware === LATEST_FIRMWARE,
+                                lastUpdate: new Date().toLocaleString('vi-VN')
+                            };
+                            
+                            console.log('Device object created:', device);
+                            deviceData.unshift(device);
+                            saveDataToStorage();
+                            renderTable();
+                            showAlert(`Đã thêm thiết bị ${serial} với firmware ${firmware}`, 'success');
+                        }
                     },
                     error: function(xhr, status, error) {
                         console.log('API error for', serial, ':', error);
@@ -444,6 +468,41 @@
                 }
             }
 
+            // Clear all data
+            function clearAllData() {
+                if (deviceData.length === 0) {
+                    showAlert('Không có dữ liệu để xóa!', 'info');
+                    return;
+                }
+                
+                const confirmMessage = `Bạn có chắc chắn muốn xóa TẤT CẢ ${deviceData.length} thiết bị?\n\nHành động này không thể hoàn tác!`;
+                
+                if (!confirm(confirmMessage)) {
+                    return;
+                }
+                
+                // Double confirmation for safety
+                if (!confirm('Lần cuối cùng - Bạn có thực sự muốn xóa tất cả dữ liệu?')) {
+                    return;
+                }
+                
+                console.log('Clearing all data:', deviceData.length, 'devices');
+                
+                // Clear device data
+                deviceData = [];
+                
+                // Clear localStorage
+                localStorage.removeItem(STORAGE_KEY);
+                
+                // Refresh table
+                renderTable();
+                
+                // Show success message
+                showAlert('Đã xóa tất cả dữ liệu thành công!', 'success');
+                
+                console.log('All data cleared successfully');
+            }
+
             // Export data to JSON file
             function exportToJson() {
                 if (deviceData.length === 0) {
@@ -554,6 +613,7 @@
             window.recheckFirmware = recheckFirmware;
             window.deleteDevice = deleteDevice;
             window.recheckAllOutdated = recheckAllOutdated;
+            window.clearAllData = clearAllData;
             window.exportToJson = exportToJson;
             window.closeToast = closeToast;
         });
