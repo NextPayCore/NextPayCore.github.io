@@ -40,13 +40,43 @@
             left: 50%;
             transform: translate(-50%, -50%);
             z-index: 9999;
-            min-width: 300px;
-            max-width: 500px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-            border-radius: 8px;
+            min-width: 400px;
+            max-width: 600px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            border-radius: 16px;
             animation: toastSlideIn 0.3s ease-out;
             font-size: 22px;
             font-weight: 600;
+            text-align: center;
+            padding: 30px;
+        }
+        .toast-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+        .toast-message {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .toast-serial {
+            font-size: 20px;
+            font-weight: 500;
+            opacity: 0.9;
+        }
+        .toast-notification.alert-success {
+            background-color: #d1edff !important;
+            border-color: #0d6efd !important;
+            color: #0d6efd !important;
+        }
+        .toast-notification.alert-success .toast-icon {
+            color: #0d6efd !important;
+        }
+        .toast-notification.alert-success .toast-message {
+            color: #0d6efd !important;
+        }
+        .toast-notification.alert-success .toast-serial {
+            color: #0d6efd !important;
         }
         @keyframes toastSlideIn {
             from {
@@ -81,10 +111,10 @@
                     <i class="fas fa-microchip"></i> Firmware Check Tool
                 </h1>
                 
-                <div class="alert alert-info">
+                <!-- <div class="alert alert-info">
                     <i class="fas fa-info-circle"></i>
                     <strong>Hướng dẫn sử dụng:</strong> Nhấn chuột vào page để focus vào document, quét mã vạch thiết bị để kiểm tra firmware. Serial thiết bị bắt đầu bằng "TB" và có 13 ký tự. Hệ thống sẽ tự động kiểm tra.
-                </div>
+                </div> -->
 
                 <!-- Hidden input for barcode scanner -->
                 <input type="text" class="serial-input" id="serialInput" placeholder="Scan barcode here...">
@@ -294,7 +324,13 @@
                             
                             saveDataToStorage();
                             renderTable();
-                            showAlert(`Đã cập nhật thiết bị ${serial} với firmware ${firmware}`, 'success');
+                            
+                            // Show appropriate message based on firmware status
+                            if (firmware === LATEST_FIRMWARE) {
+                                showAlert('Đã cập nhật', 'success', serial);
+                            } else {
+                                showAlert('Chưa cập nhật', 'warning', serial);
+                            }
                         } else {
                             // Add new device
                             console.log('Adding new device:', serial);
@@ -309,7 +345,13 @@
                             deviceData.unshift(device);
                             saveDataToStorage();
                             renderTable();
-                            showAlert(`Đã thêm thiết bị ${serial} với firmware ${firmware}`, 'success');
+                            
+                            // Show appropriate message based on firmware status
+                            if (firmware === LATEST_FIRMWARE) {
+                                showAlert('Đã cập nhật', 'success', serial);
+                            } else {
+                                showAlert('Chưa cập nhật', 'warning', serial);
+                            }
                         }
                     },
                     error: function(xhr, status, error) {
@@ -410,26 +452,47 @@
             }
 
             // Show alert message
-            function showAlert(message, type) {
+            function showAlert(message, type, serial = null) {
                 // Remove existing toast notifications
                 $('.toast-notification').remove();
                 
-                // Create toast notification
+                // Determine icon and colors based on type
+                let icon, bgClass, textClass;
+                
+                if (type === 'success') {
+                    icon = '<i class="fas fa-check-circle"></i>';
+                    bgClass = 'alert-success';
+                    textClass = 'text-dark';
+                } else if (type === 'warning') {
+                    icon = '<i class="fas fa-exclamation-triangle"></i>';
+                    bgClass = 'alert-warning';
+                    textClass = 'text-dark';
+                } else if (type === 'danger') {
+                    icon = '<i class="fas fa-times-circle"></i>';
+                    bgClass = 'alert-danger';
+                    textClass = 'text-white';
+                } else {
+                    icon = '<i class="fas fa-info-circle"></i>';
+                    bgClass = 'alert-info';
+                    textClass = 'text-white';
+                }
+                
+                // Create toast notification with new format
                 const toastHtml = `
-                    <div class="toast-notification alert alert-${type} alert-dismissible fade show" role="alert">
-                        <div class="d-flex align-items-center">
-                            <div class="flex-grow-1">
-                                ${message}
-                            </div>
-                            <button type="button" class="btn-close" onclick="closeToast(this)"></button>
+                    <div class="toast-notification alert ${bgClass} alert-dismissible fade show" role="alert">
+                        <div class="${textClass}">
+                            <div class="toast-icon">${icon}</div>
+                            <div class="toast-message">${message}</div>
+                            ${serial ? `<div class="toast-serial">${serial}</div>` : ''}
                         </div>
+                        <button type="button" class="btn-close" onclick="closeToast(this)"></button>
                     </div>
                 `;
                 
                 // Add toast to body
                 $('body').append(toastHtml);
                 
-                // Auto dismiss after 3 seconds
+                // Auto dismiss after 2 seconds
                 setTimeout(() => {
                     const toast = $('.toast-notification');
                     if (toast.length > 0) {
@@ -438,7 +501,7 @@
                             toast.remove();
                         }, 300);
                     }
-                }, 3000);
+                }, 2000);
             }
 
             // Close toast notification
