@@ -101,6 +101,14 @@
                 transform: translate(-50%, -50%) scale(0.8);
             }
         }
+        /* XS: dùng btn-lg; từ md trở lên trả về kích thước chuẩn */
+        @media (min-width: 768px) {
+            .btn-xs-lg {
+                padding: 0.375rem 0.75rem;
+                font-size: 1rem;
+                border-radius: 0.375rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -120,17 +128,20 @@
                 <input type="text" class="serial-input" id="serialInput" placeholder="Scan barcode here...">
 
                 <div class="table-container">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h3>Danh sách thiết bị</h3>
+                    <div class="d-flex justify-content-end justify-content-md-between align-items-center mb-3">
+                        <h3 class="d-none d-sm-block">Danh sách thiết bị</h3>
                         <div class="d-flex align-items-center gap-3">
-                            <button class="btn btn-danger" id="clearAllBtn" onclick="clearAllData()">
-                                <i class="fas fa-trash-alt"></i> Clear all
+                            <button class="btn btn-danger btn-lg btn-xs-lg" id="clearAllBtn" onclick="clearAllData()" aria-label="Clear all">
+                                <i class="fas fa-trash-alt"></i> <span class="d-none d-md-inline">Clear all</span>
                             </button>
-                            <button class="btn btn-success" id="exportJsonBtn" onclick="exportToJson()">
-                                <i class="fas fa-download"></i> Export JSON
+                            <button class="btn btn-success btn-lg btn-xs-lg" id="exportJsonBtn" onclick="exportToJson()" aria-label="Export JSON">
+                                <i class="fas fa-download"></i> <span class="d-none d-md-inline">Export JSON</span>
                             </button>
-                            <button class="btn btn-warning" id="recheckAllOutdatedBtn" onclick="recheckAllOutdated()">
-                                <i class="fas fa-sync-alt"></i> Recheck all outdated
+                            <button class="btn btn-warning btn-lg btn-xs-lg" id="recheckAllOutdatedBtn" onclick="recheckAllOutdated()" aria-label="Recheck all outdated">
+                                <i class="fas fa-sync-alt"></i> <span class="d-none d-md-inline">Recheck all outdated</span>
+                            </button>
+                            <button class="btn btn-primary btn-lg btn-xs-lg" id="startScanBtn" onclick="startQrScan()" aria-label="Start scan">
+                                <i class="fas fa-camera"></i> <span class="d-none d-md-inline">Start scan</span>
                             </button>
                             <div class="loading">
                                 <span class="spinner-border spinner-border-sm" role="status"></span>
@@ -166,10 +177,33 @@
         </div>
     </div>
 
+    <!-- QR Scan Modal -->
+    <div class="modal fade" id="qrScanModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-qrcode"></i> QR Camera Scanner</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="scanner" style="width: 100%; height: 360px; background: #f8f9fa; border: 2px solid #0d6efd; border-radius: 10px; overflow: hidden;"></div>
+                    <div class="text-muted mt-2"><small>Hướng camera vào mã QR chứa serial thiết bị (vd: TBXXXXXXXXXXX).</small></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-danger" data-bs-dismiss="modal">
+                        <i class="fas fa-stop"></i> Dừng
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- QR Scanner -->
+    <script src="https://unpkg.com/qr-scanner@1.4.2/qr-scanner.umd.min.js"></script>
 
     <script>
         $(document).ready(function() {
@@ -177,8 +211,9 @@
             let deviceData = [];
             let inputTimeout = null;
             const STORAGE_KEY = 'firmware_check_devices';
-            const LATEST_FIRMWARE = '1.2.0.3';
+            const LATEST_FIRMWARE = '1.2.0.5';
             const API_BASE_URL = 'https://tingbox-ota.nextpay.vn/deviceapi/version';
+            let qrScanner = null;
 
             // Initialize app
             init();
@@ -187,6 +222,13 @@
                 loadDataFromStorage();
                 renderTable();
                 setupBarcodeListener();
+                // Đảm bảo dừng scanner khi modal đóng bằng nút X/Backdrop
+                const modalEl = document.getElementById('qrScanModal');
+                modalEl.addEventListener('hidden.bs.modal', () => {
+                    if (qrScanner) {
+                        stopQrScan();
+                    }
+                });
             }
 
             // Setup barcode scanner listener with debounce
@@ -232,6 +274,86 @@
                         inputBuffer = '';
                     }, DEBOUNCE_TIME);
                 });
+            }
+
+            // ===== QR Scanner (Camera) =====
+            async function startQrScan() {
+                try {
+                    $('#startScanBtn').prop('disabled', true);
+
+                    // Cảnh báo nếu không chạy trong secure context (HTTPS / localhost)
+                    const isSecure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
+                    if (!isSecure) {
+                        showAlert('Trình duyệt yêu cầu HTTPS để truy cập camera. Hãy mở trang qua HTTPS.', 'warning');
+                    }
+
+                    const scannerEl = document.getElementById('scanner');
+                    // Gắn video element vào vùng scanner
+                    scannerEl.innerHTML = '';
+                    const videoEl = document.createElement('video');
+                    videoEl.style.width = '100%';
+                    videoEl.style.height = '100%';
+                    videoEl.style.objectFit = 'cover';
+                    videoEl.setAttribute('playsinline', 'true');
+                    scannerEl.appendChild(videoEl);
+
+                    if (qrScanner) {
+                        qrScanner.destroy();
+                        qrScanner = null;
+                    }
+
+                    qrScanner = new QrScanner(
+                        videoEl,
+                        (result) => {
+                            try {
+                                const text = typeof result === 'string' ? result : (result?.data || '');
+                                const match = String(text).match(/TB\d{11}/);
+                                if (match && match[0]) {
+                                    showAlert('Đã quét QR', 'success', match[0]);
+                                    processScannedSerial(match[0]);
+                                    // Đóng modal sau khi xử lý
+                                    setTimeout(() => {
+                                        stopQrScan();
+                                    }, 100);
+                                }
+                            } catch (e) {
+                                showAlert('Lỗi xử lý QR: ' + (e?.message || e), 'danger');
+                            }
+                        },
+                        {
+                            onDecodeError: () => {},
+                            preferredCamera: 'environment',
+                            highlightScanRegion: true,
+                            highlightCodeOutline: true,
+                            maxScansPerSecond: 8
+                        }
+                    );
+
+                    // Mở modal trước khi start camera để tránh autoplay chặn trên một số trình duyệt
+                    const modalEl = document.getElementById('qrScanModal');
+                    const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+                    modalInstance.show();
+
+                    await qrScanner.start();
+                } catch (err) {
+                    $('#startScanBtn').prop('disabled', false);
+                    showAlert('Không thể khởi động camera: ' + (err?.message || err), 'danger');
+                }
+            }
+
+            async function stopQrScan() {
+                try {
+                    if (qrScanner) {
+                        await qrScanner.stop();
+                        qrScanner.destroy();
+                        qrScanner = null;
+                    }
+                } finally {
+                    $('#startScanBtn').prop('disabled', false);
+                    const modalEl = document.getElementById('qrScanModal');
+                    const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+                    modalInstance.hide();
+                }
             }
 
             // Process scanned serial number
@@ -679,6 +801,8 @@
             window.clearAllData = clearAllData;
             window.exportToJson = exportToJson;
             window.closeToast = closeToast;
+            window.startQrScan = startQrScan;
+            window.stopQrScan = stopQrScan;
         });
     </script>
 </body>
