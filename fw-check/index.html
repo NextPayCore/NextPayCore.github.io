@@ -156,9 +156,10 @@
                                 <tr>
                                     <th>STT</th>
                                     <th>Serial</th>
-                                    <th>Firmware</th>
-                                    <th>Is Latest</th>
-                                    <th>Last Update</th>
+                                    <th class="d-none d-sm-table-cell">Firmware</th>
+                                    <th class="d-none d-sm-table-cell">Is Latest</th>
+                                    <th class="d-table-cell d-sm-none">FW / Status</th>
+                                    <th class="d-none d-sm-table-cell">Last Update</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
@@ -540,12 +541,13 @@
                     const stt = deviceData.length - index; // STT giảm dần (mới nhất = STT cao nhất)
                     const row = $(`
                         <tr>
-                            <td><span class="badge bg-primary">${stt}</span></td>
+                            <td><span class="text-end">${stt}</span></td>
                             <td><code>${device.serial}</code></td>
-                            <td><span class="badge bg-secondary">${device.firmware}</span></td>
-                            <td>${getLatestStatusBadge(device.isLatest)}</td>
-                            <td><small class="text-muted">${device.lastUpdate}</small></td>
-                            <td>
+                            <td class="d-none d-sm-table-cell"><span class="badge bg-secondary">${device.firmware}</span></td>
+                            <td class="d-none d-sm-table-cell">${getLatestStatusBadge(device.isLatest)}</td>
+                            <td class="d-table-cell d-sm-none">${getCombinedFirmwareStatus(device.firmware, device.isLatest)}</td>
+                            <td class="d-none d-sm-table-cell"><small class="text-muted">${device.lastUpdate}</small></td>
+                            <td class="text-nowrap">
                                 <button class="btn btn-sm btn-outline-primary me-1" onclick="recheckFirmware('${device.serial}')" title="Kiểm tra lại">
                                     <i class="fas fa-sync-alt"></i>
                                 </button>
@@ -566,6 +568,13 @@
                 } else {
                     return '<span class="badge bg-warning status-badge"><i class="fas fa-exclamation-triangle"></i> Outdated</span>';
                 }
+            }
+
+            // Get combined firmware + status cell for XS screens
+            function getCombinedFirmwareStatus(firmware, isLatest) {
+                const fw = `<span class="badge bg-secondary me-1">${firmware}</span>`;
+                const st = getLatestStatusBadge(isLatest);
+                return `<div class="d-flex align-items-center">${fw}${st}</div>`;
             }
 
             // Show loading state
